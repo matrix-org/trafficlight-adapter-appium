@@ -3,20 +3,10 @@ import uuid
 
 import requests
 
-from typing import Any, Dict
 from appium import webdriver
-from action import system, login
-
-
-class Request:
-    def __init__(self, json: Dict[str, Any]):
-        self.action = json['action']
-        self.data = json['data']
-
-
-class Response:
-    def __init__(self, json: Dict[str, Any]):
-        self.data = json
+from appium.webdriver.webdriver import WebDriver
+from action import system, login, room
+from trafficlight_adapter_appium.request import Request
 
 
 class Adapter:
@@ -27,11 +17,13 @@ class Adapter:
             "idle": system.idle,
             "login": login.login,
             "logout": login.logout,
-            
+            "open_room": room.open_room,
+            "get_timeline": room.get_timeline,
+
         }
         self.driver = self.create_driver(args)
 
-    def create_driver(self, args):
+    def create_driver(self, args) -> WebDriver:
         capabilities = dict(
             platformName='Android',
             automationName='uiautomator2',
@@ -43,6 +35,9 @@ class Adapter:
             adbExecTimeout="30000",
             disableIdLocatorAutocompletion=True,
         )
+        # One-off actions should leave app as it was found.
+        if args.one_off:
+            capabilities['noReset'] = True
 
         driver = webdriver.Remote(args.appium_url, capabilities)
         driver.implicitly_wait(30)  # waits up to 5 seconds when finding elements
@@ -118,18 +113,33 @@ def main():
         help="Action to perform"
     )
 
+    parser.add_argument(
+        "--data",
+        dest="one_off_data",
+        action="append",
+        type=str,
+        default=[],
+        help="Data for one-off action, in NAME=VALUE format"
+    )
+
     args = parser.parse_args()
     if args.one_off:
         adapter = Adapter(args)
-        action = adapter.actions.get(args.action)
-        request = Request({"action": action, "data": {}})
-        response = action(adapter.driver,request)
+        action = args.one_off_action
+        action_function = adapter.actions.get(action)
+        data = {}
+        for item in args.one_off_data:
+            (key,value) = item.split('=')
+            data[key] = value
+
+        request = Request({"action": action, "data": data})
+        response = action_function(adapter.driver,request)
         print(response.data)
-        
-    adapter = Adapter(args)
-    adapter.register()
-    adapter.reset()
-    adapter.run()
+    else:
+        adapter = Adapter(args)
+        adapter.register()
+        adapter.reset()
+        adapter.run()
 
 
 

@@ -1,4 +1,5 @@
-from trafficlight_adapter_appium.adapter import Request, Response
+from trafficlight_adapter_appium.response import Response
+from trafficlight_adapter_appium.request import Request
 from trafficlight_adapter_appium.action import ActionException
 import os
 

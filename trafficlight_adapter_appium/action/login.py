@@ -1,6 +1,7 @@
 from appium.webdriver.common.appiumby import AppiumBy
 
-from trafficlight_adapter_appium.adapter import Request, Response
+from trafficlight_adapter_appium.response import Response
+from trafficlight_adapter_appium.request import Request
 
 
 def login(driver, request: Request) -> Response:
