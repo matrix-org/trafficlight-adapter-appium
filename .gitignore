@@ -1,0 +1,4 @@
+__pycache__
+build/
+.idea/
+trafficlight_adapter_appium.egg-info/

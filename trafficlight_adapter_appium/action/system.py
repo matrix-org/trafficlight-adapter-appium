@@ -1,11 +1,11 @@
 from trafficlight_adapter_appium.response import Response
 from trafficlight_adapter_appium.request import Request
 from trafficlight_adapter_appium.action import ActionException
-import os
+import time
 
 def idle(driver, request: Request) -> Response:
-    duration = request.data['duration_ms']
-    os.sleep(duration / 1000)
+    duration = int(request.data['delay'])
+    time.sleep(duration / 1000)
     return Response({})
 
 
