@@ -29,7 +29,7 @@ class Adapter:
 
     def create_driver(self) -> WebDriver:
 
-        if self.args.appium_type == 'local':
+        if self.args.appium_type == 'local-android':
             capabilities = dict(
                 platformName='Android',
                 automationName='uiautomator2',
@@ -43,13 +43,17 @@ class Adapter:
             )
             appium_url = "http://localhost:4567"
 
-        if self.args.appium_type == 'browserstack':
+        if self.args.appium_type == 'local-ios':
+            capabilities = {}
+            appium_url = "http://localhost:4567"
 
+
+        if self.args.appium_type == 'bs-android':
             capabilities =  {
                 "platformName" : "android",
                 "platformVersion" : "9.0",
                 "deviceName" : "Google Pixel 3",
-                "app" : self.args.apk_uri,
+                "app" : "eax-nightly",
                 'bstack:options' : {
                     "projectName" : "trafficlight",
                     "appiumVersion" : "2.0.0",
@@ -60,12 +64,27 @@ class Adapter:
             }
             appium_url = "http://hub.browserstack.com/wd/hub"
 
+        if self.args.appium_type == 'bs-ios':
+                capabilities = {
+                    "app": "eix-nightly",
+                    'bstack:options': {
+                        "projectName": "trafficlight",
+                        "appiumVersion": "2.0.0",
+                        "disableAnimations": "true",
+                        "userName": self.args.browserstack_username,
+                        "accessKey": self.args.browserstack_password,
+                    },
+                },
+
+                appium_url = "http://hub.browserstack.com/wd/hub"
+
             # One-off actions should leave app as it was found.
         if self.args.one_off:
             capabilities['noReset'] = True
 
         driver = webdriver.Remote(appium_url, capabilities)
         driver.implicitly_wait(30)
+        self.driver = driver
         return driver
 
     def register(self) -> None:
@@ -79,13 +98,30 @@ class Adapter:
         # TODO: check if needs type application/json
 
     def run(self) -> None:
+
+
+        # urgh, maybe better as two separate loops?
+
         while (True):
             poll_rsp = self.poll()
-            action = self.actions[poll_rsp.action]
-            logger.info(f"{poll_rsp.action} {poll_rsp.data}")
-            action_rsp = action(self.driver, poll_rsp)
+            if self.driver is None:
+                if poll_rsp.action == "idle":
+                    action = self.actions[poll_rsp.action]
+                    logger.info(f"{poll_rsp.action} {poll_rsp.data}")
+                    action(self.driver, poll_rsp)
+                else:
+                    self.create_driver() # Side effect: driver is now not None
+                    action = self.actions[poll_rsp.action]
+                    logger.info(f"{poll_rsp.action} {poll_rsp.data}")
+                    action(self.driver, poll_rsp)
+                    self.respond(action_rsp)
+            else:
+                # General loop.
+                action = self.actions[poll_rsp.action]
+                logger.info(f"{poll_rsp.action} {poll_rsp.data}")
+                action_rsp = action(self.driver, poll_rsp)
 
-            self.respond(action_rsp)
+                self.respond(action_rsp)
             # and loop until bored...
 
     def poll(self) -> Request:
@@ -105,6 +141,7 @@ def main():
         default="http://localhost:5000",
         help="HTTP(S) endpoint to connect to trafficlight",
     )
+
     parser.add_argument(
         "--package",
         dest="package",
@@ -112,24 +149,25 @@ def main():
         default='io.element.android.x.debug',
         help="Package of build being worked with"
     )
+
     parser.add_argument(
-        "--apk-file",
+        "--app-file",
         dest="apk",
         type=str,
         help="File on disk to upload to device"
     )
 
     parser.add_argument(
-        "--apk-uri",
-        dest="apk_uri",
+        "--bs-uri",
+        dest="browserstack_uri",
         type=str,
-        help="Browserstack uploaded APK URI (bs://....)"
+        help="Browserstack uploaded URI (bs://....)"
     )
 
     parser.add_argument(
         "--appium-type",
         dest="appium_type",
-        choices=['local', 'browserstack'],
+        choices=['local-android', 'local-ios', 'bs-android', 'bs-ios'],
         help="Appium provider"
     )
 
@@ -170,6 +208,7 @@ def main():
     args = parser.parse_args()
     if args.one_off:
         adapter = Adapter(args)
+        adapter.create_driver()
         action = args.one_off_action
         action_function = adapter.actions.get(action)
         data = {}
@@ -183,7 +222,7 @@ def main():
     else:
         adapter = Adapter(args)
         adapter.register()
-        adapter.create_driver()
+        # Wait until mid-run to create driver...
         adapter.run()
 
 

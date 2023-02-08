@@ -16,7 +16,6 @@ def send_message(driver, request: Request) -> Response:
     el.send_keys(message)
     el = driver.find_element(by=AppiumBy.ID, value="io.element.android.x:id/sendButton")
     el.click()
-    raise ActionException("Not implemented yet")
 
 
 def create_room(driver, request: Request) -> Response:
@@ -40,7 +39,6 @@ def accept_invite(driver, request: Request) -> Response:
 
 def open_room(driver, request: Request) -> Response:
     room_name = request.data['name']
-    driver.find
     raise ActionException("Not implemented yet")
 
 
