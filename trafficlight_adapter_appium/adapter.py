@@ -1,12 +1,12 @@
 import argparse
+import logging
 import uuid
 
 import requests
-import logging
-
 from appium import webdriver
 from appium.webdriver.webdriver import WebDriver
-from action import system, login, room
+
+from trafficlight_adapter_appium.action import system, login, room
 from trafficlight_adapter_appium.request import Request
 from trafficlight_adapter_appium.response import Response
 
@@ -65,18 +65,20 @@ class Adapter:
             appium_url = "http://hub.browserstack.com/wd/hub"
 
         if self.args.appium_type == 'bs-ios':
-                capabilities = {
-                    "app": "eix-nightly",
-                    'bstack:options': {
-                        "projectName": "trafficlight",
-                        "appiumVersion": "2.0.0",
-                        "disableAnimations": "true",
-                        "userName": self.args.browserstack_username,
-                        "accessKey": self.args.browserstack_password,
-                    },
-                },
-
-                appium_url = "http://hub.browserstack.com/wd/hub"
+            capabilities = {
+                "platformName": "ios",
+                "appium:deviceName": "iPhone 14",
+                "appium:app": "element-x-ios-pr",
+                "bstack-options": {
+                    "projectName": "trafficlight",
+                    "appiumVersion": "2.0.0",
+                    "disableAnimations": "true",
+                    "userName": self.args.browserstack_username,
+                    "accessKey": self.args.browserstack_password
+                }
+            }
+            logger.info(capabilities)
+            appium_url = f"http://{self.args.browserstack_username}:{self.args.browserstack_password}@hub.browserstack.com/wd/hub"
 
             # One-off actions should leave app as it was found.
         if self.args.one_off:
@@ -88,8 +90,13 @@ class Adapter:
         return driver
 
     def register(self) -> None:
+        if self.args.appium_type == "bs-android" or self.args.appium_type == "local-android":
+            reg_type = "element-android"
+        else:
+            reg_type = "element-ios"
+
         registration_json = {
-            "type": "element-android",
+            "type": reg_type,
             "version": "UNKNOWN"
         }
         requests.post(f"{self.trafficlight_url}/client/{self.uuid}/register",
