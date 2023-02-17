@@ -6,7 +6,7 @@ import requests
 from appium import webdriver
 from appium.webdriver.webdriver import WebDriver
 
-from trafficlight_adapter_appium.action import system, login, room
+from trafficlight_adapter_appium.action import system, login, room, crypto
 from trafficlight_adapter_appium.request import Request
 from trafficlight_adapter_appium.response import Response
 
@@ -22,7 +22,9 @@ class Adapter:
             "logout": login.logout,
             "open_room": room.open_room,
             "get_timeline": room.get_timeline,
-
+            "start_crosssign": crypto.start_crosssign,
+            "accept_crosssign": crypto.accept_crosssign,
+            "verify_crosssign": crypto.verify_crosssign,
         }
         self.args = args
         self.driver = None
@@ -108,28 +110,32 @@ class Adapter:
 
 
         # urgh, maybe better as two separate loops?
-
-        while (True):
-            poll_rsp = self.poll()
-            if self.driver is None:
-                if poll_rsp.action == "idle":
-                    action = self.actions[poll_rsp.action]
-                    logger.info(f"{poll_rsp.action} {poll_rsp.data}")
-                    action(self.driver, poll_rsp)
+        try:
+            while (True):
+                poll_rsp = self.poll()
+                if self.driver is None:
+                    if poll_rsp.action == "idle":
+                        action = self.actions[poll_rsp.action]
+                        logger.info(f"{poll_rsp.action} {poll_rsp.data}")
+                        action(self.driver, poll_rsp)
+                    else:
+                        self.create_driver() # Side effect: driver is now not None
+                        action = self.actions[poll_rsp.action]
+                        logger.info(f"{poll_rsp.action} {poll_rsp.data}")
+                        action_rsp = action(self.driver, poll_rsp)
+                        self.respond(action_rsp)
                 else:
-                    self.create_driver() # Side effect: driver is now not None
+                    # General loop.
                     action = self.actions[poll_rsp.action]
                     logger.info(f"{poll_rsp.action} {poll_rsp.data}")
-                    action(self.driver, poll_rsp)
-                    self.respond(action_rsp)
-            else:
-                # General loop.
-                action = self.actions[poll_rsp.action]
-                logger.info(f"{poll_rsp.action} {poll_rsp.data}")
-                action_rsp = action(self.driver, poll_rsp)
+                    action_rsp = action(self.driver, poll_rsp)
 
-                self.respond(action_rsp)
-            # and loop until bored...
+                    self.respond(action_rsp)
+                # and loop until bored...
+        except Exception as e:
+            source = self.driver.page_source
+            logger.error(f"Context:\n {source}")
+            raise e
 
     def poll(self) -> Request:
         rsp = requests.get(f"{self.trafficlight_url}/client/{self.uuid}/poll")
