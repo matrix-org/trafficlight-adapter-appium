@@ -168,6 +168,8 @@ class Adapter:
             source = self.driver.page_source
             logger.error(f"Context:\n {source}")
             raise e
+        finally:
+            self.driver.finish()
 
     def poll(self) -> Request:
         rsp = requests.get(f"{self.trafficlight_url}/client/{self.uuid}/poll")
@@ -259,17 +261,20 @@ def main():
     args = parser.parse_args()
     if args.one_off:
         adapter = Adapter(args)
-        adapter.create_driver()
-        action = args.one_off_action
-        action_function = adapter.actions.get(action)
-        data = {}
-        for item in args.one_off_data:
-            (key,value) = item.split('=')
-            data[key] = value
+        driver = adapter.create_driver()
+        try:
+            action = args.one_off_action
+            action_function = adapter.actions.get(action)
+            data = {}
+            for item in args.one_off_data:
+                (key,value) = item.split('=')
+                data[key] = value
 
-        request = Request({"action": action, "data": data})
-        response = action_function(adapter.driver,request)
-        print(response.data)
+            request = Request({"action": action, "data": data})
+            response = action_function(adapter.driver,request)
+            print(response.data)
+        finally:
+            driver.finish()
     else:
         adapter = Adapter(args)
         adapter.register()
