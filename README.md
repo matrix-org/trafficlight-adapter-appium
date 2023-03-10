@@ -1,0 +1,2 @@
+
+Appium adapter for trafficlight.
