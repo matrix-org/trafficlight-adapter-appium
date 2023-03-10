@@ -1,12 +1,11 @@
-import argparse
 import logging
 import uuid
 
 import requests
 from appium import webdriver
-from appium.webdriver.webdriver import WebDriver
 
-from trafficlight_adapter_appium.action import system, login, room
+from trafficlight_adapter_appium.action import system, login, room, crypto
+from trafficlight_adapter_appium.driver import TrafficlightDriver
 from trafficlight_adapter_appium.request import Request
 from trafficlight_adapter_appium.response import Response
 
@@ -22,12 +21,15 @@ class Adapter:
             "logout": login.logout,
             "open_room": room.open_room,
             "get_timeline": room.get_timeline,
-
+            "start_crosssign": crypto.start_crosssign,
+            "accept_crosssign": crypto.accept_crosssign,
+            "verify_crosssign": crypto.verify_crosssign,
+            "verify_crosssign_emoji": crypto.verify_crosssign,
         }
         self.args = args
         self.driver = None
 
-    def create_driver(self) -> WebDriver:
+    def create_driver(self) -> TrafficlightDriver:
 
         if self.args.appium_type == 'local-android':
             capabilities = dict(
@@ -48,21 +50,51 @@ class Adapter:
             appium_url = "http://localhost:4567"
 
 
+        if self.args.appium_type == 'sl-android':
+            capabilities =  {
+                "platformName" : "Android",
+                "automationName": 'uiautomator2',
+                "platformVersion" : "12.0",
+                "deviceName" : "Android GoogleAPI Emulator",
+                "app" : "storage:filename=eax-nightly.apk",
+                'sauce:options' : {
+                    "build": "appium-build-PLUR4",
+                    "name": "trafficlight"
+                },
+            }
+            appium_url = f"https://{self.args.username}:{self.args.password}@ondemand.eu-central-1.saucelabs.com:443/wd/hub"
+            logger.info(appium_url)
+
+        if self.args.appium_type == 'sl-ios':
+            capabilities = {
+                "platformName": "iOS",
+                "appium:deviceName": "iPhone.*",
+                "appium:automationName": "XCUITest",
+                "appium:app": "storage:filename=element-x-ios-pr.ipa",
+                "sauce:options": {
+                    "name": "trafficlight",
+                    "build": "lalalal",
+                }
+            }
+            appium_url = f"https://{self.args.username}:{self.args.password}@ondemand.eu-central-1.saucelabs.com:443/wd/hub"
+            logger.info(appium_url)
+        
         if self.args.appium_type == 'bs-android':
             capabilities =  {
                 "platformName" : "android",
                 "platformVersion" : "9.0",
+                "automationName": 'uiautomator2',
                 "deviceName" : "Google Pixel 3",
                 "app" : "eax-nightly",
                 'bstack:options' : {
                     "projectName" : "trafficlight",
                     "appiumVersion" : "2.0.0",
                     "disableAnimations" : "true",
-                    "userName": self.args.browserstack_username,
-                    "accessKey": self.args.browserstack_password,
+                    "userName": self.args.username,
+                    "accessKey": self.args.password,
                 },
             }
-            appium_url = "http://hub.browserstack.com/wd/hub"
+            appium_url = f"http://{self.args.username}:{self.args.password}@hub.browserstack.com/wd/hub"
 
         if self.args.appium_type == 'bs-ios':
             capabilities = {
@@ -73,12 +105,12 @@ class Adapter:
                     "projectName": "trafficlight",
                     "appiumVersion": "2.0.0",
                     "disableAnimations": "true",
-                    "userName": self.args.browserstack_username,
-                    "accessKey": self.args.browserstack_password
+                    "userName": self.args.username,
+                    "accessKey": self.args.password
                 }
             }
             logger.info(capabilities)
-            appium_url = f"http://{self.args.browserstack_username}:{self.args.browserstack_password}@hub.browserstack.com/wd/hub"
+            appium_url = f"http://{self.args.username}:{self.args.password}@hub.browserstack.com/wd/hub"
 
             # One-off actions should leave app as it was found.
         if self.args.one_off:
@@ -86,11 +118,11 @@ class Adapter:
 
         driver = webdriver.Remote(appium_url, capabilities)
         driver.implicitly_wait(30)
-        self.driver = driver
-        return driver
+        self.driver = TrafficlightDriver(driver, self.args.appium_type)
+        return self.driver
 
     def register(self) -> None:
-        if self.args.appium_type == "bs-android" or self.args.appium_type == "local-android":
+        if self.args.appium_type == "bs-android" or self.args.appium_type == "local-android" or self.args.appium_type == "sl-android":
             reg_type = "element-android"
         else:
             reg_type = "element-ios"
@@ -108,28 +140,34 @@ class Adapter:
 
 
         # urgh, maybe better as two separate loops?
-
-        while (True):
-            poll_rsp = self.poll()
-            if self.driver is None:
-                if poll_rsp.action == "idle":
-                    action = self.actions[poll_rsp.action]
-                    logger.info(f"{poll_rsp.action} {poll_rsp.data}")
-                    action(self.driver, poll_rsp)
+        try:
+            while (True):
+                poll_rsp = self.poll()
+                if self.driver is None:
+                    if poll_rsp.action == "idle":
+                        action = self.actions[poll_rsp.action]
+                        logger.info(f"{poll_rsp.action} {poll_rsp.data}")
+                        action(self.driver, poll_rsp)
+                    else:
+                        self.create_driver() # Side effect: driver is now not None
+                        action = self.actions[poll_rsp.action]
+                        logger.info(f"{poll_rsp.action} {poll_rsp.data}")
+                        action_rsp = action(self.driver, poll_rsp)
+                        self.respond(action_rsp)
                 else:
-                    self.create_driver() # Side effect: driver is now not None
+                    # General loop.
                     action = self.actions[poll_rsp.action]
                     logger.info(f"{poll_rsp.action} {poll_rsp.data}")
-                    action(self.driver, poll_rsp)
-                    self.respond(action_rsp)
-            else:
-                # General loop.
-                action = self.actions[poll_rsp.action]
-                logger.info(f"{poll_rsp.action} {poll_rsp.data}")
-                action_rsp = action(self.driver, poll_rsp)
-
-                self.respond(action_rsp)
-            # and loop until bored...
+                    action_rsp = action(self.driver, poll_rsp)
+                    if poll_rsp.action != "idle":
+                        self.respond(action_rsp)
+                # and loop until bored...
+        except Exception as e:
+            source = self.driver.page_source
+            logger.error(f"Context:\n {source}")
+            raise e
+        finally:
+            self.driver.finish()
 
     def poll(self) -> Request:
         rsp = requests.get(f"{self.trafficlight_url}/client/{self.uuid}/poll")
@@ -137,102 +175,3 @@ class Adapter:
 
     def respond(self, response: Response) -> None:
         rsp = requests.post(f"{self.trafficlight_url}/client/{self.uuid}/respond", response.data)
-
-def main():
-    logging.basicConfig(level=logging.DEBUG)
-    parser = argparse.ArgumentParser(description="Appium adapter for trafficlight")
-    parser.add_argument(
-        "--trafficlight-url",
-        dest="trafficlight_url",
-        type=str,
-        default="http://localhost:5000",
-        help="HTTP(S) endpoint to connect to trafficlight",
-    )
-
-    parser.add_argument(
-        "--package",
-        dest="package",
-        type=str,
-        default='io.element.android.x.debug',
-        help="Package of build being worked with"
-    )
-
-    parser.add_argument(
-        "--app-file",
-        dest="apk",
-        type=str,
-        help="File on disk to upload to device"
-    )
-
-    parser.add_argument(
-        "--bs-uri",
-        dest="browserstack_uri",
-        type=str,
-        help="Browserstack uploaded URI (bs://....)"
-    )
-
-    parser.add_argument(
-        "--appium-type",
-        dest="appium_type",
-        choices=['local-android', 'local-ios', 'bs-android', 'bs-ios'],
-        help="Appium provider"
-    )
-
-    parser.add_argument(
-        "--user",
-        dest="browserstack_username",
-        help="browserstack username"
-    )
-    parser.add_argument(
-        "--pass",
-        dest="browserstack_password",
-        help="browserstack password"
-    )
-
-    parser.add_argument(
-        "--one-off",
-        dest="one_off",
-        action="store_true",
-        help="Run a one-off action"
-    )
-
-    parser.add_argument(
-        "--action",
-        dest="one_off_action",
-        type=str,
-        help="Action to perform"
-    )
-
-    parser.add_argument(
-        "--data",
-        dest="one_off_data",
-        action="append",
-        type=str,
-        default=[],
-        help="Data for one-off action, in NAME=VALUE format"
-    )
-
-    args = parser.parse_args()
-    if args.one_off:
-        adapter = Adapter(args)
-        adapter.create_driver()
-        action = args.one_off_action
-        action_function = adapter.actions.get(action)
-        data = {}
-        for item in args.one_off_data:
-            (key,value) = item.split('=')
-            data[key] = value
-
-        request = Request({"action": action, "data": data})
-        response = action_function(adapter.driver,request)
-        print(response.data)
-    else:
-        adapter = Adapter(args)
-        adapter.register()
-        # Wait until mid-run to create driver...
-        adapter.run()
-
-
-
-if __name__ == '__main__':
-    main()
