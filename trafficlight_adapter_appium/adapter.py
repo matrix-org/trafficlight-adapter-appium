@@ -1,4 +1,5 @@
 import logging
+import traceback
 import uuid
 
 import requests
@@ -19,6 +20,7 @@ class Adapter:
             "idle": system.idle,
             "login": login.login,
             "logout": login.logout,
+            "exit": system.exit,
             "open_room": room.open_room,
             "get_timeline": room.get_timeline,
             "start_crosssign": crypto.start_crosssign,
@@ -149,7 +151,9 @@ class Adapter:
                         logger.info(f"{poll_rsp.action} {poll_rsp.data}")
                         action(self.driver, poll_rsp)
                     else:
-                        self.create_driver() # Side effect: driver is now not None
+                        if poll_rsp.action == "exit":
+                            return  # don't create driver if we don't need to.
+                        self.create_driver()  # Side effect: driver is now not None
                         action = self.actions[poll_rsp.action]
                         logger.info(f"{poll_rsp.action} {poll_rsp.data}")
                         action_rsp = action(self.driver, poll_rsp)
@@ -159,12 +163,20 @@ class Adapter:
                     action = self.actions[poll_rsp.action]
                     logger.info(f"{poll_rsp.action} {poll_rsp.data}")
                     action_rsp = action(self.driver, poll_rsp)
+                    if poll_rsp.action == "exit":
+                        return
                     if poll_rsp.action != "idle":
                         self.respond(action_rsp)
+
                 # and loop until bored...
         except Exception as e:
-            source = self.driver.page_source
-            logger.error(f"Context:\n {source}")
+            self.error(e)
+            if self.driver:
+                source = self.driver.page_source
+                logger.error(f"Context:\n {source}")
+                self.upload_data("page_source.xml", source)
+            else:
+                logger.error(f"Handling exception before driver created. Not filing page source.")
             raise e
         finally:
             self.driver.finish()
@@ -175,3 +187,19 @@ class Adapter:
 
     def respond(self, response: Response) -> None:
         rsp = requests.post(f"{self.trafficlight_url}/client/{self.uuid}/respond", response.data)
+
+    def error(self, exception: Exception) -> None:
+
+        data = {
+            "error": {
+                "type": "unknown",
+                "path": "",
+                "details": traceback.format_exception(exception)
+            },
+        }
+        rsp = requests.post(f"{self.trafficlight_url}/client/{self.uuid}/error", json=data)
+
+    def upload_data(self, filename: str, data: str) -> None:
+
+        files = {'file': (filename, data)}
+        rsp = requests.post(f"{self.trafficlight_url}/client/{self.uuid}/upload", files=files)
